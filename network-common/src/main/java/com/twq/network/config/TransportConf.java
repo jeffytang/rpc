@@ -1,5 +1,6 @@
 package com.twq.network.config;
 
+import com.google.common.primitives.Ints;
 import com.twq.network.util.JavaUtils;
 
 import java.util.Locale;
@@ -96,5 +97,15 @@ public class TransportConf {
      */
     public boolean lazyFileDescriptor() {
         return conf.getBoolean(SPARK_NETWORK_IO_LAZYFD_KEY, true);
+    }
+
+    /**
+     * Minimum size of a block that we should start using memory map rather than reading in through
+     * normal IO operations. This prevents Spark from memory mapping very small blocks. In general,
+     * memory mapping has high overhead for blocks close to or below the page size of the OS.
+     */
+    public int memoryMapBytes() {
+        return Ints.checkedCast(JavaUtils.byteStringAsBytes(
+                conf.get("io.memoryMapThreshold", "2m")));
     }
 }
