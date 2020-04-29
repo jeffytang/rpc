@@ -6,10 +6,12 @@ import com.twq.network.client.TransportResponseHandler;
 import com.twq.network.config.TransportConf;
 import com.twq.network.protocol.MessageDecoder;
 import com.twq.network.protocol.MessageEncoder;
+import com.twq.network.protocol.TransportFrameDecoder;
 import com.twq.network.server.RpcHandler;
 import com.twq.network.server.TransportChannelHandler;
 import com.twq.network.server.TransportRequestHandler;
 import com.twq.network.server.TransportServer;
+import com.twq.network.util.NettyUtils;
 import io.netty.channel.socket.SocketChannel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -54,6 +56,7 @@ public class TransportContext {
             TransportChannelHandler channelHandler = createChannelHandler(channel, channelRpcHandler);
             channel.pipeline()
                     .addLast("encoder", ENCODER)
+                    .addLast(TransportFrameDecoder.HANDLER_NAME, NettyUtils.createFrameDecoder())
                     .addLast("decoder", DECODER)
                     .addLast("handler", channelHandler);
             return channelHandler;
