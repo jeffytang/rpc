@@ -52,7 +52,6 @@ public class TransportServer implements Closeable {
             @Override
             protected void initChannel(SocketChannel ch) throws Exception {
                 logger.debug("New connection accepted for remote address {}.", ch.remoteAddress());
-                // TODO 设置 handler
                 context.initializePipeline(ch);
             }
         });
