@@ -18,7 +18,7 @@ public class MessageEncoder extends MessageToMessageEncoder<Message> {
 
     private static final Logger logger = LoggerFactory.getLogger(MessageEncoder.class);
 
-    public final MessageEncoder INSTANCE = new MessageEncoder();
+    public static final MessageEncoder INSTANCE = new MessageEncoder();
 
     private MessageEncoder() {}
 
