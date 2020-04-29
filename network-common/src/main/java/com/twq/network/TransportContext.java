@@ -68,8 +68,8 @@ public class TransportContext {
     private TransportChannelHandler createChannelHandler(
             SocketChannel channel,
             RpcHandler channelRpcHandler) {
-        TransportClient client = new TransportClient(channel);
-        TransportResponseHandler responseHandler = new TransportResponseHandler();
+        TransportResponseHandler responseHandler = new TransportResponseHandler(channel);
+        TransportClient client = new TransportClient(channel, responseHandler);
         TransportRequestHandler requestHandler
                 = new TransportRequestHandler(channel, client, channelRpcHandler);
         return new TransportChannelHandler(client, requestHandler, responseHandler);

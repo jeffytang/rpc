@@ -34,6 +34,10 @@ public class TransportResponseHandler extends MessageHandler<ResponseMessage> {
         outstandingRpcs.put(requestId, callback);
     }
 
+    public void removeRpcRequest(long requestId) {
+        outstandingRpcs.remove(requestId);
+    }
+
     @Override
     public void handle(ResponseMessage message) throws Exception {
         if (message instanceof RpcResponse) {
