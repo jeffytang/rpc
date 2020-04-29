@@ -2,9 +2,11 @@ package com.twq.network;
 
 import com.twq.network.client.TransportClient;
 import com.twq.network.client.TransportClientFactory;
+import com.twq.network.client.TransportResponseHandler;
 import com.twq.network.protocol.MessageDecoder;
 import com.twq.network.protocol.MessageEncoder;
 import com.twq.network.server.TransportChannelHandler;
+import com.twq.network.server.TransportRequestHandler;
 import com.twq.network.server.TransportServer;
 import io.netty.channel.socket.SocketChannel;
 import org.slf4j.Logger;
@@ -47,7 +49,8 @@ public class TransportContext {
 
     private TransportChannelHandler createChannelHandler(SocketChannel channel) {
         TransportClient client = new TransportClient(channel);
-
-        return new TransportChannelHandler(client);
+        TransportResponseHandler responseHandler = new TransportResponseHandler();
+        TransportRequestHandler requestHandler = new TransportRequestHandler();
+        return new TransportChannelHandler(client, requestHandler, responseHandler);
     }
 }
