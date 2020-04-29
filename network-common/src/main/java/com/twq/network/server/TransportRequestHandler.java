@@ -43,6 +43,18 @@ public class TransportRequestHandler extends MessageHandler<RequestMessage> {
     public void handle(RequestMessage message) throws Exception {
         if (message instanceof RpcRequest) {
             processRpcRequest((RpcRequest) message);
+        } else if (message instanceof OneWayMessage) {
+            processOneWayMessage((OneWayMessage) message);
+        }
+    }
+
+    private void processOneWayMessage(OneWayMessage req) {
+        try {
+            rpcHandler.receive(reverseClient, req.body().nioByteBuffer());
+        } catch (Exception e) {
+            logger.error("Error while invoking RpcHandler#receive() for one-way message.", e);
+        } finally {
+            req.body().release();
         }
     }
 

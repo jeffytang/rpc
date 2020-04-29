@@ -5,6 +5,7 @@ import com.google.common.base.Throwables;
 import com.google.common.util.concurrent.SettableFuture;
 import com.sun.istack.internal.Nullable;
 import com.twq.network.buffer.NioManagedBuffer;
+import com.twq.network.protocol.OneWayMessage;
 import com.twq.network.protocol.RpcRequest;
 import io.netty.channel.Channel;
 import io.netty.util.concurrent.Future;
@@ -115,13 +116,24 @@ public class TransportClient implements Closeable {
         }
     }
 
+    /**
+     * Sends an opaque message to the RpcHandler on the server-side.
+     * No reply is expected for the message,
+     * and no delivery guarantees are made.
+     *
+     * @param message The message to send.
+     */
+    public void send(ByteBuffer message) {
+        channel.writeAndFlush(new OneWayMessage(new NioManagedBuffer(message)));
+    }
+
     private static long requestId() {
         return Math.abs(UUID.randomUUID().getLeastSignificantBits());
     }
 
     @Override
     public void close() throws IOException {
-
+        // TODO
     }
 
     private class StdChannelListener
