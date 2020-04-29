@@ -4,9 +4,11 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
 import com.google.common.util.concurrent.SettableFuture;
 import com.sun.istack.internal.Nullable;
+import com.twq.network.buffer.ManagedBuffer;
 import com.twq.network.buffer.NioManagedBuffer;
 import com.twq.network.protocol.OneWayMessage;
 import com.twq.network.protocol.RpcRequest;
+import com.twq.network.protocol.UploadStream;
 import io.netty.channel.Channel;
 import io.netty.util.concurrent.Future;
 import io.netty.util.concurrent.GenericFutureListener;
@@ -125,6 +127,34 @@ public class TransportClient implements Closeable {
      */
     public void send(ByteBuffer message) {
         channel.writeAndFlush(new OneWayMessage(new NioManagedBuffer(message)));
+    }
+
+    /**
+     * Send data to the remote end as a stream.  This differs from stream() in that this is a request
+     * to *send* data to the remote end, not to receive it from the remote.
+     *
+     * @param meta meta data associated with the stream, which will be read completely on the
+     *             receiving end before the stream itself.
+     * @param data this will be streamed to the remote end to allow for transferring large amounts
+     *             of data without reading into memory.
+     * @param callback handles the reply -- onSuccess will only be called when both message and data
+     *                 are received successfully.
+     */
+    public long uploadStream(
+            ManagedBuffer meta,
+            ManagedBuffer data,
+            RpcResponseCallback callback) {
+        if (logger.isTraceEnabled()) {
+            logger.trace("Sending RPC to {}", getRemoteAddress(channel));
+        }
+
+        long requestId = requestId();
+        handler.addRpcRequest(requestId, callback);
+
+        RpcChannelListener listener = new RpcChannelListener(requestId, callback);
+        channel.writeAndFlush(new UploadStream(requestId, meta, data)).addListener(listener);
+
+        return requestId;
     }
 
     private static long requestId() {

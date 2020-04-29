@@ -108,4 +108,15 @@ public class TransportConf {
         return Ints.checkedCast(JavaUtils.byteStringAsBytes(
                 conf.get("io.memoryMapThreshold", "2m")));
     }
+
+    /**
+     * The max number of chunks allowed to be transferred at the same time on shuffle service.
+     * Note that new incoming connections will be closed when the max number is hit. The client will
+     * retry according to the shuffle retry configs (see `spark.shuffle.io.maxRetries` and
+     * `spark.shuffle.io.retryWait`), if those limits are reached the task will fail with fetch
+     * failure.
+     */
+    public long maxChunksBeingTransferred() {
+        return conf.getLong("io.maxChunksBeingTransferred", Long.MAX_VALUE);
+    }
 }

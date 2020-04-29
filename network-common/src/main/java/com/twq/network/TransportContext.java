@@ -73,8 +73,8 @@ public class TransportContext {
             RpcHandler channelRpcHandler) {
         TransportResponseHandler responseHandler = new TransportResponseHandler(channel);
         TransportClient client = new TransportClient(channel, responseHandler);
-        TransportRequestHandler requestHandler
-                = new TransportRequestHandler(channel, client, channelRpcHandler);
+        TransportRequestHandler requestHandler = new TransportRequestHandler(channel,
+                    client, channelRpcHandler, conf.maxChunksBeingTransferred());
         return new TransportChannelHandler(client, requestHandler, responseHandler);
     }
 }

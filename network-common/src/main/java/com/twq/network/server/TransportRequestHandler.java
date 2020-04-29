@@ -1,8 +1,11 @@
 package com.twq.network.server;
 
 import com.google.common.base.Throwables;
+import com.twq.network.buffer.ManagedBuffer;
 import com.twq.network.buffer.NioManagedBuffer;
 import com.twq.network.client.RpcResponseCallback;
+import com.twq.network.client.StreamCallbackWithID;
+import com.twq.network.client.StreamInterceptor;
 import com.twq.network.client.TransportClient;
 import com.twq.network.protocol.*;
 import io.netty.channel.Channel;
@@ -10,6 +13,7 @@ import io.netty.channel.ChannelFuture;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 
@@ -31,13 +35,22 @@ public class TransportRequestHandler extends MessageHandler<RequestMessage> {
     /** Handles all RPC messages. */
     private final RpcHandler rpcHandler;
 
+    /** Returns each chunk part of a stream. */
+    private final StreamManager streamManager;
+
+    /** The max number of chunks being transferred and not finished yet. */
+    private final long maxChunksBeingTransferred;
+
     public TransportRequestHandler(
             Channel channel,
             TransportClient reverseClient,
-            RpcHandler rpcHandler) {
+            RpcHandler rpcHandler,
+            long maxChunksBeingTransferred) {
         this.channel = channel;
         this.reverseClient = reverseClient;
         this.rpcHandler = rpcHandler;
+        this.streamManager = rpcHandler.getStreamManager();
+        this.maxChunksBeingTransferred = maxChunksBeingTransferred;
     }
     @Override
     public void handle(RequestMessage message) throws Exception {
@@ -45,6 +58,81 @@ public class TransportRequestHandler extends MessageHandler<RequestMessage> {
             processRpcRequest((RpcRequest) message);
         } else if (message instanceof OneWayMessage) {
             processOneWayMessage((OneWayMessage) message);
+        } else if (message instanceof UploadStream) {
+            processStreamUpload((UploadStream) message);
+        }
+    }
+
+    /**
+     * Handle a request from the client to upload a stream of data.
+     */
+    private void processStreamUpload(final UploadStream req) {
+        assert (req.body() == null);
+        try {
+            RpcResponseCallback callback = new RpcResponseCallback() {
+                @Override
+                public void onSuccess(ByteBuffer response) {
+                    respond(new RpcResponse(req.requestId, new NioManagedBuffer(response)));
+                }
+
+                @Override
+                public void onFailure(Throwable e) {
+                    respond(new RpcFailure(req.requestId, Throwables.getStackTraceAsString(e)));
+                }
+            };
+            TransportFrameDecoder frameDecoder = (TransportFrameDecoder)
+                    channel.pipeline().get(TransportFrameDecoder.HANDLER_NAME);
+            ByteBuffer meta = req.meta.nioByteBuffer();
+            StreamCallbackWithID streamHandler = rpcHandler.receiveStream(reverseClient, meta, callback);
+            if (streamHandler == null) {
+                throw new NullPointerException("rpcHandler returned a null streamHandler");
+            }
+            StreamCallbackWithID wrappedCallback = new StreamCallbackWithID() {
+                @Override
+                public void onData(String streamId, ByteBuffer buf) throws IOException {
+                    streamHandler.onData(streamId, buf);
+                }
+
+                @Override
+                public void onComplete(String streamId) throws IOException {
+                    try {
+                        streamHandler.onComplete(streamId);
+                        callback.onSuccess(ByteBuffer.allocate(0));
+                    } catch (Exception ex) {
+                        IOException ioExc = new IOException("Failure post-processing complete stream;" +
+                                " failing this rpc and leaving channel active", ex);
+                        callback.onFailure(ioExc);
+                        streamHandler.onFailure(streamId, ioExc);
+                    }
+                }
+
+                @Override
+                public void onFailure(String streamId, Throwable cause) throws IOException {
+                    callback.onFailure(new IOException("Destination failed while reading stream", cause));
+                    streamHandler.onFailure(streamId, cause);
+                }
+
+                @Override
+                public String getID() {
+                    return streamHandler.getID();
+                }
+            };
+            if (req.bodyByteCount > 0) {
+                StreamInterceptor<RequestMessage> interceptor = new StreamInterceptor<>(
+                        this, wrappedCallback.getID(), req.bodyByteCount, wrappedCallback);
+                frameDecoder.setInterceptor(interceptor);
+            } else {
+                wrappedCallback.onComplete(wrappedCallback.getID());
+            }
+        } catch (Exception e) {
+            logger.error("Error while invoking RpcHandler#receive() on RPC id " + req.requestId, e);
+            respond(new RpcFailure(req.requestId, Throwables.getStackTraceAsString(e)));
+            // We choose to totally fail the channel, rather than trying to recover as we do in other
+            // cases.  We don't know how many bytes of the stream the client has already sent for the
+            // stream, it's not worth trying to recover.
+            channel.pipeline().fireExceptionCaught(e);
+        } finally {
+            req.meta.release();
         }
     }
 

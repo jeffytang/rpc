@@ -1,5 +1,6 @@
 package com.twq.network.client;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.twq.network.protocol.ResponseMessage;
 import com.twq.network.protocol.RpcFailure;
 import com.twq.network.protocol.RpcResponse;
@@ -24,6 +25,8 @@ public class TransportResponseHandler extends MessageHandler<ResponseMessage> {
 
     private final Channel channel;
     private final Map<Long, RpcResponseCallback> outstandingRpcs;
+
+    private volatile boolean streamActive;
 
     public TransportResponseHandler(Channel channel) {
         this.channel = channel;
@@ -65,6 +68,11 @@ public class TransportResponseHandler extends MessageHandler<ResponseMessage> {
                 listener.onFailure(new RuntimeException(resp.errorString));
             }
         }
+    }
+
+    @VisibleForTesting
+    public void deactivateStream() {
+        streamActive = false;
     }
 
     private void failOutstandingRequests(Throwable cause) {
