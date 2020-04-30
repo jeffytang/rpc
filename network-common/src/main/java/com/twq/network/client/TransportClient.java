@@ -6,10 +6,7 @@ import com.google.common.util.concurrent.SettableFuture;
 import com.sun.istack.internal.Nullable;
 import com.twq.network.buffer.ManagedBuffer;
 import com.twq.network.buffer.NioManagedBuffer;
-import com.twq.network.protocol.OneWayMessage;
-import com.twq.network.protocol.RpcRequest;
-import com.twq.network.protocol.StreamRequest;
-import com.twq.network.protocol.UploadStream;
+import com.twq.network.protocol.*;
 import io.netty.channel.Channel;
 import io.netty.util.concurrent.Future;
 import io.netty.util.concurrent.GenericFutureListener;
@@ -175,6 +172,42 @@ public class TransportClient implements Closeable {
             handler.addStreamCallback(streamId, callback);
             channel.writeAndFlush(new StreamRequest(streamId)).addListener(listener);
         }
+    }
+
+    /**
+     * Requests a single chunk from the remote side, from the pre-negotiated streamId.
+     *
+     * Chunk indices go from 0 onwards. It is valid to request the same chunk multiple times, though
+     * some streams may not support this.
+     *
+     * Multiple fetchChunk requests may be outstanding simultaneously, and the chunks are guaranteed
+     * to be returned in the same order that they were requested, assuming only a single
+     * TransportClient is used to fetch the chunks.
+     *
+     * @param streamId Identifier that refers to a stream in the remote StreamManager. This should
+     *                 be agreed upon by client and server beforehand.
+     * @param chunkIndex 0-based index of the chunk to fetch
+     * @param callback Callback invoked upon successful receipt of chunk, or upon any failure.
+     */
+    public void fetchChunk(
+            long streamId,
+            int chunkIndex,
+            ChunkReceivedCallback callback) {
+        if (logger.isDebugEnabled()) {
+            logger.debug("Sending fetch chunk request {} to {}", chunkIndex, getRemoteAddress(channel));
+        }
+
+        StreamChunkId streamChunkId = new StreamChunkId(streamId, chunkIndex);
+        StdChannelListener listener = new StdChannelListener(streamChunkId) {
+            @Override
+            void handleFailure(String errorMsg, Throwable cause) {
+                handler.removeFetchRequest(streamChunkId);
+                callback.onFailure(chunkIndex, new IOException(errorMsg, cause));
+            }
+        };
+        handler.addFetchRequest(streamChunkId, callback);
+
+        channel.writeAndFlush(new ChunkFetchRequest(streamChunkId)).addListener(listener);
     }
 
     private static long requestId() {

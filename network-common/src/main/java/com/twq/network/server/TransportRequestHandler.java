@@ -64,7 +64,40 @@ public class TransportRequestHandler extends MessageHandler<RequestMessage> {
             processStreamUpload((UploadStream) message);
         } else if (message instanceof StreamRequest) {
             processStreamRequest((StreamRequest) message);
+        } else if (message instanceof ChunkFetchRequest) {
+            processFetchRequest((ChunkFetchRequest) message);
         }
+    }
+
+    private void processFetchRequest(final ChunkFetchRequest req) {
+        if (logger.isTraceEnabled()) {
+            logger.trace("Received req from {} to fetch block {}", getRemoteAddress(channel),
+                    req.streamChunkId);
+        }
+        long chunksBeingTransferred = streamManager.chunksBeingTransferred();
+        if (chunksBeingTransferred >= maxChunksBeingTransferred) {
+            logger.warn("The number of chunks being transferred {} is above {}, close the connection.",
+                    chunksBeingTransferred, maxChunksBeingTransferred);
+            channel.close();
+            return;
+        }
+        ManagedBuffer buf;
+        try {
+            streamManager.checkAuthorization(reverseClient, req.streamChunkId.streamId);
+            // 先拿到 ManagedBuffer，对应的数据是在 MessageEncoder 中通过 channel 零拷贝到 socket 缓冲区
+            // 请见 MessageEncoder
+            buf = streamManager.getChunk(req.streamChunkId.streamId, req.streamChunkId.chunkIndex);
+        } catch (Exception e) {
+            logger.error(String.format("Error opening block %s for request from %s",
+                    req.streamChunkId, getRemoteAddress(channel)), e);
+            respond(new ChunkFetchFailure(req.streamChunkId, Throwables.getStackTraceAsString(e)));
+            return;
+        }
+
+        streamManager.chunkBeingSent(req.streamChunkId.streamId);
+        respond(new ChunkFetchSuccess(req.streamChunkId, buf)).addListener(future -> {
+            streamManager.chunkSent(req.streamChunkId.streamId);
+        });
     }
 
     private void processStreamRequest(final StreamRequest req) {

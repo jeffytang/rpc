@@ -29,6 +29,7 @@ public class TransportResponseHandler extends MessageHandler<ResponseMessage> {
     private final Channel channel;
     private final Map<Long, RpcResponseCallback> outstandingRpcs;
     private final Queue<Pair<String, StreamCallback>> streamCallbacks;
+    private final Map<StreamChunkId, ChunkReceivedCallback> outstandingFetches;
 
     private volatile boolean streamActive;
 
@@ -36,6 +37,15 @@ public class TransportResponseHandler extends MessageHandler<ResponseMessage> {
         this.channel = channel;
         this.outstandingRpcs = new ConcurrentHashMap<>();
         this.streamCallbacks = new ConcurrentLinkedQueue<>();
+        this.outstandingFetches = new ConcurrentHashMap<>();
+    }
+
+    public void removeFetchRequest(StreamChunkId streamChunkId) {
+        outstandingFetches.remove(streamChunkId);
+    }
+
+    public void addFetchRequest(StreamChunkId streamChunkId, ChunkReceivedCallback callback) {
+        outstandingFetches.put(streamChunkId, callback);
     }
 
     public void addStreamCallback(String streamId, StreamCallback callback) {
@@ -116,6 +126,31 @@ public class TransportResponseHandler extends MessageHandler<ResponseMessage> {
             } else {
                 logger.warn("Stream failure with unknown callback: {}", resp.error);
             }
+        } else if (message instanceof ChunkFetchSuccess) {
+            ChunkFetchSuccess resp = (ChunkFetchSuccess) message;
+            ChunkReceivedCallback listener = outstandingFetches.get(resp.streamChunkId);
+            if (listener == null) {
+                logger.warn("Ignoring response for block {} from {} since it is not outstanding",
+                        resp.streamChunkId, getRemoteAddress(channel));
+                resp.body().release();
+            } else {
+                outstandingFetches.remove(resp.streamChunkId);
+                listener.onSuccess(resp.streamChunkId.chunkIndex, resp.body());
+                resp.body().release();
+            }
+        } else if (message instanceof ChunkFetchFailure) {
+            ChunkFetchFailure resp = (ChunkFetchFailure) message;
+            ChunkReceivedCallback listener = outstandingFetches.get(resp.streamChunkId);
+            if (listener == null) {
+                logger.warn("Ignoring response for block {} from {} ({}) since it is not outstanding",
+                        resp.streamChunkId, getRemoteAddress(channel), resp.errorString);
+            } else {
+                outstandingFetches.remove(resp.streamChunkId);
+                listener.onFailure(resp.streamChunkId.chunkIndex, new ChunkFetchFailureException(
+                        "Failure while fetching " + resp.streamChunkId + ": " + resp.errorString));
+            }
+        } else {
+            throw new IllegalStateException("Unknown response type: " + message.type());
         }
     }
 
