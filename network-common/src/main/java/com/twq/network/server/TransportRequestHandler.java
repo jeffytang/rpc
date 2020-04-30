@@ -17,6 +17,8 @@ import java.io.IOException;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 
+import static com.twq.network.util.NettyUtils.getRemoteAddress;
+
 /**
  * A handler that processes requests from clients and writes chunk data back. Each handler is
  * attached to a single Netty channel, and keeps track of which streams have been fetched via this
@@ -60,8 +62,48 @@ public class TransportRequestHandler extends MessageHandler<RequestMessage> {
             processOneWayMessage((OneWayMessage) message);
         } else if (message instanceof UploadStream) {
             processStreamUpload((UploadStream) message);
+        } else if (message instanceof StreamRequest) {
+            processStreamRequest((StreamRequest) message);
         }
     }
+
+    private void processStreamRequest(final StreamRequest req) {
+        if (logger.isTraceEnabled()) {
+            logger.trace("Received req from {} to fetch stream {}", getRemoteAddress(channel),
+                    req.streamId);
+        }
+
+        long chunksBeingTransferred = streamManager.chunksBeingTransferred();
+        if (chunksBeingTransferred >= maxChunksBeingTransferred) {
+            logger.warn("The number of chunks being transferred {} is above {}, close the connection.",
+                    chunksBeingTransferred, maxChunksBeingTransferred);
+            channel.close();
+            return;
+        }
+
+        ManagedBuffer buf;
+        try {
+            // 先拿到 ManagedBuffer，对应的数据是在 MessageEncoder 中通过 channel 零拷贝到 socket 缓冲区
+            // 请见 MessageEncoder
+            buf = streamManager.openStream(req.streamId);
+        } catch (Exception e) {
+            logger.error(String.format(
+                    "Error opening stream %s for request from %s", req.streamId, getRemoteAddress(channel)), e);
+            respond(new StreamFailure(req.streamId, Throwables.getStackTraceAsString(e)));
+            return;
+        }
+
+        if (buf != null) {
+            streamManager.streamBeingSent(req.streamId);
+            respond(new StreamResponse(req.streamId, buf.size(), buf)).addListener(future -> {
+                streamManager.streamSent(req.streamId);
+            });
+        } else {
+            respond(new StreamFailure(req.streamId, String.format(
+                    "Stream '%s' was not found.", req.streamId)));
+        }
+    }
+
 
     /**
      * Handle a request from the client to upload a stream of data.

@@ -8,6 +8,7 @@ import com.twq.network.buffer.ManagedBuffer;
 import com.twq.network.buffer.NioManagedBuffer;
 import com.twq.network.protocol.OneWayMessage;
 import com.twq.network.protocol.RpcRequest;
+import com.twq.network.protocol.StreamRequest;
 import com.twq.network.protocol.UploadStream;
 import io.netty.channel.Channel;
 import io.netty.util.concurrent.Future;
@@ -155,6 +156,25 @@ public class TransportClient implements Closeable {
         channel.writeAndFlush(new UploadStream(requestId, meta, data)).addListener(listener);
 
         return requestId;
+    }
+
+    public void stream(String streamId, StreamCallback callback) {
+        StdChannelListener listener = new StdChannelListener(streamId) {
+            @Override
+            void handleFailure(String errorMsg, Throwable cause) throws Exception {
+                callback.onFailure(streamId, new IOException(errorMsg, cause));
+            }
+        };
+        if (logger.isDebugEnabled()) {
+            logger.debug("Sending stream request for {} to {}", streamId, getRemoteAddress(channel));
+        }
+        // Need to synchronize here so that the callback is added to the queue and the RPC is
+        // written to the socket atomically, so that callbacks are called in the right order
+        // when responses arrive.
+        synchronized (this) {
+            handler.addStreamCallback(streamId, callback);
+            channel.writeAndFlush(new StreamRequest(streamId)).addListener(listener);
+        }
     }
 
     private static long requestId() {
