@@ -7,8 +7,12 @@ import com.twq.network.protocol.ResponseMessage;
 import com.twq.network.util.NettyUtils;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
+import io.netty.handler.timeout.IdleState;
+import io.netty.handler.timeout.IdleStateEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import static com.twq.network.util.NettyUtils.getRemoteAddress;
 
 /**
  * The single Transport-level Channel handler which is used for delegating requests to the
@@ -36,13 +40,20 @@ public class TransportChannelHandler
     private final TransportRequestHandler requestHandler;
     private final TransportResponseHandler responseHandler;
 
+    private final long requestTimeoutNs;
+    private final boolean closeIdleConnections;
+
     public TransportChannelHandler(
             TransportClient client,
             TransportRequestHandler requestHandler,
-            TransportResponseHandler responseHandler) {
+            TransportResponseHandler responseHandler,
+            long requestTimeoutMs,
+            boolean closeIdleConnections) {
         this.client = client;
         this.requestHandler = requestHandler;
         this.responseHandler = responseHandler;
+        this.requestTimeoutNs = requestTimeoutMs * 1000L * 1000;
+        this.closeIdleConnections = closeIdleConnections;
     }
 
     public TransportClient getClient() {
@@ -51,7 +62,7 @@ public class TransportChannelHandler
 
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
-        logger.warn("Exception in connection from " + NettyUtils.getRemoteAddress(ctx.channel()),
+        logger.warn("Exception in connection from " + getRemoteAddress(ctx.channel()),
                 cause);
         requestHandler.exceptionCaught(cause);
         responseHandler.exceptionCaught(cause);
@@ -98,6 +109,38 @@ public class TransportChannelHandler
             responseHandler.handle((ResponseMessage) request);
         } else {
             ctx.fireChannelRead(request);
+        }
+    }
+
+    /** Triggered based on events from an {@link io.netty.handler.timeout.IdleStateHandler}. */
+    @Override
+    public void userEventTriggered(ChannelHandlerContext ctx, Object evt) throws Exception {
+        if (evt instanceof IdleStateEvent) {
+            IdleStateEvent e = (IdleStateEvent) evt;
+            // See class comment for timeout semantics. In addition to ensuring we only timeout while
+            // there are outstanding requests, we also do a secondary consistency check to ensure
+            // there's no race between the idle timeout and incrementing the numOutstandingRequests
+            // (see SPARK-7003).
+            //
+            // To avoid a race between TransportClientFactory.createClient() and this code which could
+            // result in an inactive client being returned, this needs to run in a synchronized block.
+            synchronized (this) {
+                // 根据请求情况确定当前连接是否真的 timeout
+                boolean isActuallyOverdue =
+                        System.nanoTime() - responseHandler.getTimeOfLastRequestNs() > requestTimeoutNs;
+                if (e.state() == IdleState.ALL_IDLE && isActuallyOverdue) {
+                    String address = getRemoteAddress(ctx.channel());
+                    logger.error("Connection to {} has been quiet for {} ms while there are outstanding " +
+                            "requests. Assuming connection is dead; please adjust io.network.timeout if " +
+                            "this is wrong.", address, requestTimeoutNs / 1000 / 1000);
+                    client.timeOut();
+                    ctx.close();
+                } else if (closeIdleConnections) {
+                    client.timeOut();
+                    ctx.close();
+                }
+
+            }
         }
     }
 

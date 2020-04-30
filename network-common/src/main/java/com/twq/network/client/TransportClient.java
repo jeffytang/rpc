@@ -269,4 +269,9 @@ public class TransportClient implements Closeable {
             callback.onFailure(new IOException(errorMsg, cause));
         }
     }
+
+    /** Mark this channel as having timed out. */
+    public void timeOut() {
+        this.timedOut = true;
+    }
 }

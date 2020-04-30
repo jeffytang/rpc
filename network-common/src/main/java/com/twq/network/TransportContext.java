@@ -13,6 +13,7 @@ import com.twq.network.server.TransportRequestHandler;
 import com.twq.network.server.TransportServer;
 import com.twq.network.util.NettyUtils;
 import io.netty.channel.socket.SocketChannel;
+import io.netty.handler.timeout.IdleStateHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -25,11 +26,15 @@ public class TransportContext {
     private final TransportConf conf;
     private final RpcHandler rpcHandler;
 
+    private final boolean closeIdleConnections;
+
     public TransportContext(
             TransportConf conf,
-            RpcHandler rpcHandler) {
+            RpcHandler rpcHandler,
+            boolean closeIdleConnections) {
         this.conf = conf;
         this.rpcHandler = rpcHandler;
+        this.closeIdleConnections = closeIdleConnections;
     }
 
     public TransportClientFactory createClientFactory() {
@@ -58,6 +63,9 @@ public class TransportContext {
                     .addLast("encoder", ENCODER)
                     .addLast(TransportFrameDecoder.HANDLER_NAME, NettyUtils.createFrameDecoder())
                     .addLast("decoder", DECODER)
+                    .addLast("idleStateHandler",
+                            new IdleStateHandler(0, 0,
+                                    conf.connectionTimeoutMs() / 1000))
                     .addLast("handler", channelHandler);
             return channelHandler;
         } catch (RuntimeException e) {
@@ -75,6 +83,7 @@ public class TransportContext {
         TransportClient client = new TransportClient(channel, responseHandler);
         TransportRequestHandler requestHandler = new TransportRequestHandler(channel,
                     client, channelRpcHandler, conf.maxChunksBeingTransferred());
-        return new TransportChannelHandler(client, requestHandler, responseHandler);
+        return new TransportChannelHandler(client, requestHandler, responseHandler,
+                conf.connectionTimeoutMs(), closeIdleConnections);
     }
 }

@@ -16,6 +16,7 @@ import java.util.Map;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Handler that processes server responses, in response to requests issued from a
@@ -31,6 +32,9 @@ public class TransportResponseHandler extends MessageHandler<ResponseMessage> {
     private final Queue<Pair<String, StreamCallback>> streamCallbacks;
     private final Map<StreamChunkId, ChunkReceivedCallback> outstandingFetches;
 
+    /** Records the time (in system nanoseconds) that the last fetch or RPC request was sent. */
+    private final AtomicLong timeOfLastRequestNs;
+
     private volatile boolean streamActive;
 
     public TransportResponseHandler(Channel channel) {
@@ -38,6 +42,7 @@ public class TransportResponseHandler extends MessageHandler<ResponseMessage> {
         this.outstandingRpcs = new ConcurrentHashMap<>();
         this.streamCallbacks = new ConcurrentLinkedQueue<>();
         this.outstandingFetches = new ConcurrentHashMap<>();
+        this.timeOfLastRequestNs = new AtomicLong(0);
     }
 
     public void removeFetchRequest(StreamChunkId streamChunkId) {
@@ -45,19 +50,32 @@ public class TransportResponseHandler extends MessageHandler<ResponseMessage> {
     }
 
     public void addFetchRequest(StreamChunkId streamChunkId, ChunkReceivedCallback callback) {
+        updateTimeOfLastRequest();
         outstandingFetches.put(streamChunkId, callback);
     }
 
     public void addStreamCallback(String streamId, StreamCallback callback) {
+        updateTimeOfLastRequest();
         streamCallbacks.offer(ImmutablePair.of(streamId, callback));
     }
 
     public void addRpcRequest(long requestId, RpcResponseCallback callback) {
+        updateTimeOfLastRequest();
         outstandingRpcs.put(requestId, callback);
     }
 
     public void removeRpcRequest(long requestId) {
         outstandingRpcs.remove(requestId);
+    }
+
+    /** Returns the time in nanoseconds of when the last request was sent out. */
+    public long getTimeOfLastRequestNs() {
+        return timeOfLastRequestNs.get();
+    }
+
+    /** Updates the time of the last request to the current system time. */
+    public void updateTimeOfLastRequest() {
+        timeOfLastRequestNs.set(System.nanoTime());
     }
 
     @Override
