@@ -73,7 +73,7 @@ public class TransportServer implements Closeable {
     }
 
     @Override
-    public void close() throws IOException {
+    public void close() {
         if (channelFuture != null) {
             // close is a local operation and should finish within milliseconds; timeout just to be safe
             channelFuture.channel().close().awaitUninterruptibly(10, TimeUnit.SECONDS);

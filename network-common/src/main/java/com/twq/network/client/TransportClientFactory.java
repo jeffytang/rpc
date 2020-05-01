@@ -1,9 +1,12 @@
 package com.twq.network.client;
 
 import com.twq.network.TransportContext;
+import com.twq.network.config.TransportConf;
 import com.twq.network.server.TransportChannelHandler;
+import com.twq.network.util.JavaUtils;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.Channel;
+import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
@@ -12,6 +15,8 @@ import io.netty.channel.socket.nio.NioSocketChannel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.Closeable;
+import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.util.Random;
@@ -19,7 +24,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 
 
-public class TransportClientFactory {
+public class TransportClientFactory implements Closeable {
+
+    private final TransportConf conf;
 
     private static class ClientPool {
         TransportClient[] clients;
@@ -48,12 +55,14 @@ public class TransportClientFactory {
         this.sorketChannel = NioSocketChannel.class;
         this.workerGroup = new NioEventLoopGroup();
 
+        this.conf = context.getConf();
         connectionPool = new ConcurrentHashMap<>();
         this.numConnectionsPerPeer = 5;
         random = new Random();
     }
 
-    public TransportClient createClient(String remoteHost, int remotePort) {
+    public TransportClient createClient(String remoteHost, int remotePort)
+            throws IOException, InterruptedException{
 
         final InetSocketAddress unresolvedAddress
                 = InetSocketAddress.createUnresolved(remoteHost, remotePort);
@@ -97,7 +106,8 @@ public class TransportClientFactory {
         }
     }
 
-    private TransportClient createClient(InetSocketAddress address) {
+    private TransportClient createClient(InetSocketAddress address)
+            throws IOException, InterruptedException {
         logger.debug("Creating new connection to {}", address);
 
         Bootstrap bootstrap = new Bootstrap();
@@ -115,6 +125,37 @@ public class TransportClientFactory {
             }
         });
 
-        return clientRef.get();
+        // Connect to the remote server
+        ChannelFuture cf = bootstrap.connect(address);
+        if (!cf.await(conf.connectionTimeoutMs())) {
+            throw new IOException(
+                    String.format("Connecting to %s timed out (%s ms)", address, conf.connectionTimeoutMs()));
+        } else if (cf.cause() != null) {
+            throw new IOException(String.format("Failed to connect to %s", address), cf.cause());
+        }
+        TransportClient client = clientRef.get();
+        assert client != null : "Channel future completed successfully with null client";
+
+        return client;
+    }
+
+    /** Close all connections in the connection pool, and shutdown the worker thread pool. */
+    @Override
+    public void close() {
+        // Go through all clients and close them if they are active.
+        for (ClientPool clientPool : connectionPool.values()) {
+            for (int i = 0; i < clientPool.clients.length; i++) {
+                TransportClient client = clientPool.clients[i];
+                if (client != null) {
+                    clientPool.clients[i] = null;
+                    JavaUtils.closeQuietly(client);
+                }
+            }
+        }
+        connectionPool.clear();
+
+        if (workerGroup != null && !workerGroup.isShuttingDown()) {
+            workerGroup.shutdownGracefully();
+        }
     }
 }

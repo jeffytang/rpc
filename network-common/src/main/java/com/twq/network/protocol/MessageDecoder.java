@@ -3,7 +3,8 @@ package com.twq.network.protocol;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
-import io.netty.handler.codec.MessageToMessageEncoder;
+import io.netty.handler.codec.MessageToMessageDecoder;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -14,7 +15,7 @@ import java.util.List;
  * This encoder is stateless so it is safe to be shared by multiple threads.
  */
 @ChannelHandler.Sharable
-public class MessageDecoder extends MessageToMessageEncoder<ByteBuf> {
+public class MessageDecoder extends MessageToMessageDecoder<ByteBuf> {
 
     private static final Logger logger = LoggerFactory.getLogger(MessageDecoder.class);
 
@@ -23,7 +24,7 @@ public class MessageDecoder extends MessageToMessageEncoder<ByteBuf> {
     private MessageDecoder() {}
 
     @Override
-    protected void encode(ChannelHandlerContext context, ByteBuf in, List<Object> out) throws Exception {
+    protected void decode(ChannelHandlerContext context, ByteBuf in, List<Object> out) throws Exception {
         Message.Type msgType = Message.Type.decode(in);
         Message decoded = decode(msgType, in);
         assert decoded.type() == msgType;

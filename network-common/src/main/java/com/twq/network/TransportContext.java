@@ -17,6 +17,8 @@ import io.netty.handler.timeout.IdleStateHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
+
 public class TransportContext {
     private static final Logger logger = LoggerFactory.getLogger(TransportContext.class);
 
@@ -27,6 +29,10 @@ public class TransportContext {
     private final RpcHandler rpcHandler;
 
     private final boolean closeIdleConnections;
+
+    public TransportContext(TransportConf conf, RpcHandler rpcHandler) {
+        this(conf, rpcHandler, false);
+    }
 
     public TransportContext(
             TransportConf conf,
@@ -39,6 +45,10 @@ public class TransportContext {
 
     public TransportClientFactory createClientFactory() {
         return new TransportClientFactory(this);
+    }
+
+    public TransportServer createServer() {
+        return createServer(0);
     }
 
     public TransportServer createServer(int port) {
@@ -85,5 +95,9 @@ public class TransportContext {
                     client, channelRpcHandler, conf.maxChunksBeingTransferred());
         return new TransportChannelHandler(client, requestHandler, responseHandler,
                 conf.connectionTimeoutMs(), closeIdleConnections);
+    }
+
+    public TransportConf getConf() {
+        return conf;
     }
 }
