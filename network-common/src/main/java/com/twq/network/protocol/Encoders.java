@@ -24,7 +24,7 @@ public class Encoders {
         public static String decode(ByteBuf buf) {
             int length = buf.readInt();
             byte[] bytes = new byte[length];
-            buf.readBytes(buf);
+            buf.readBytes(bytes);
             return new String(bytes, StandardCharsets.UTF_8);
         }
     }
