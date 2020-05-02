@@ -256,7 +256,7 @@ public class RpcIntegrationSuite {
             client.uploadStream(meta, data, new RpcStreamCallback(stream, res, sem));
         }
 
-        if (!sem.tryAcquire(streams.length, 5, TimeUnit.SECONDS)) {
+        if (!sem.tryAcquire(streams.length, 5, TimeUnit.HOURS)) {
             fail("Timeout getting response from the server");
         }
         streamCallbacks.values().forEach(streamCallback -> {
@@ -299,5 +299,14 @@ public class RpcIntegrationSuite {
         RpcResult res = sendRPC("hello/Aaron");
         assertEquals(res.successMessages, Sets.newHashSet("Hello, Aaron!"));
         assertTrue(res.errorMessages.isEmpty());
+    }
+
+    @Test
+    public void sendRpcWithStreamOneAtATime() throws Exception {
+        for (String stream : StreamTestHelper.STREAMS) {
+            RpcResult res = sendRpcWithStream(stream);
+            assertTrue("there were error messages!" + res.errorMessages, res.errorMessages.isEmpty());
+            assertEquals(Sets.newHashSet(stream), res.successMessages);
+        }
     }
 }

@@ -14,7 +14,8 @@ import java.nio.ByteBuffer;
 import java.util.Random;
 
 public class StreamTestHelper {
-    static final String[] STREAMS = { "largeBuffer", "smallBuffer", "emptyBuffer", "file" };
+    // static final String[] STREAMS = { "largeBuffer", "smallBuffer", "emptyBuffer", "file" };
+    static final String[] STREAMS = {"file"};
 
     final File testFile;
     final File tempDir;
